@@ -1,6 +1,6 @@
-# PDF Search — In-Browser, Zero-Install
+# In-Browser Semantic PDF Search
 
-**Live:** https://pdf-search-79n.pages.dev
+**Live:** https://pdf-search-79n.pages.dev &nbsp;·&nbsp; **Python reference:** [sumanthvelagala/document-rag](https://github.com/sumanthvelagala/document-rag) (started Aug 2025)
 
 Search your own PDFs privately in the browser. No account, no server, no upload.
 Text extraction, embedding, BM25, and hybrid retrieval all run on your device.
@@ -10,13 +10,16 @@ Results jump to the exact page and highlight the matching passage.
 
 1. Drop PDFs into the browser. PDF.js extracts text — no bytes leave your device.
 2. Chunks are embedded with `all-MiniLM-L6-v2` (quantized, ~22 MB) running in a
-   Web Worker via Transformers.js.
+   Web Worker via Transformers.js. The ONNX runtime loads from jsDelivr CDN on
+   first use; the model weights load from Hugging Face CDN once and are cached
+   by the browser. Documents themselves are never uploaded anywhere.
 3. A BM25 index is built in parallel using Orama.
 4. On query: dense retrieval + BM25 top-50 each, fused with RRF (2:1 dense:BM25),
-   top-k results returned with zero hallucination risk.
-5. Click a result — PDF opens in a native viewer at the exact page.
+   top-k results returned — verbatim passages from your documents, no generation.
+5. Matched pages are rendered with PDF.js at 2× DPI and the matched passage is
+   highlighted. Click any page to open the full PDF at that page.
 
-Everything runs offline after the first load (model download ~22 MB, cached by browser).
+Everything runs offline after the first load (model ~22 MB, cached by browser).
 
 ## Privacy
 
@@ -25,27 +28,44 @@ Everything runs offline after the first load (model download ~22 MB, cached by b
 - No analytics touch document content.
 - Turn off Wi-Fi after the page loads — it still works.
 
-## Limits
+## Known limits
 
-- **500 pages total** across all loaded PDFs. Mix of many small docs or one large one.
-- Scanned PDFs (image-only) are not supported — no OCR.
-- Two-column layouts (most ML papers) have reading-order issues in text extraction.
-- Tables and equations extracted as plain text may be garbled.
+| Limit | Detail |
+|---|---|
+| **500 pages total** | Across all loaded PDFs combined |
+| **No OCR** | Scanned (image-only) PDFs return no text |
+| **Two-column layouts** | Reading order issues in text extraction (affects most ML papers) |
+| **Tables and equations** | Extracted as plain text — may be garbled |
 
-## Eval results (Python reference, 60 questions, 15 papers, 6 domains)
+## Eval results
 
-| Metric | Hybrid RRF (2:1) | BM25 baseline |
+Both pipelines use the same 60 questions, 15 papers, 7 domains.
+Browser eval run with `browser/eval.ts` (tsx + Transformers.js); Python eval run with `eval.py`.
+
+| Metric | Browser · `all-MiniLM-L6-v2` q8 | Python ref · `all-mpnet-base-v2` |
 |---|---|---|
-| Recall@5  | **80.0% (48/60)** | 58.3% (35/60) |
-| Recall@10 | **91.7% (55/60)** | 68.3% (41/60) |
-| Recall@20 | **93.3% (56/60)** | 81.7% (49/60) |
-| Avg latency @10 | **25ms** | <1ms |
+| Recall@5  | 68.3% (41/60) | **80.0% (48/60)** |
+| Recall@10 | 83.3% (50/60) | **91.7% (55/60)** |
+| Recall@20 | 91.7% (55/60) | **93.3% (56/60)** |
+
+Gap at Recall@10: **−8.4 pp** — model size (384-dim q8 vs 768-dim fp32) and quantization.
+
+**Hard semantic queries** (10 questions, vocabulary deliberately different from document text):
+
+| Metric | Browser hybrid | Browser BM25 only† |
+|---|---|---|
+| Recall@10 | 50.0% (5/10) | 10.0% (1/10) |
+| Recall@20 | 80.0% (8/10) | 10.0% (1/10) |
+
+Dense retrieval handles all 5 hard-query passes; BM25 alone finds only 1.
+
+† BM25 uses `threshold:1` (all query tokens must match) — same setting as the live app.
+Python BM25 baseline uses soft scoring so numbers are not directly comparable.
 
 ## Models
 
-- **Browser embeddings**: `all-MiniLM-L6-v2` quantized int8 (~22 MB). The ONNX
-  runtime WASM (26 MB) exceeds Cloudflare Pages' 25 MiB per-file limit and is
-  loaded at runtime from jsDelivr CDN.
+- **Browser**: `all-MiniLM-L6-v2` quantized int8 (~22 MB). The ONNX runtime WASM
+  (26 MB) exceeds Cloudflare Pages' 25 MiB per-file limit and loads from jsDelivr CDN.
 - **Python reference**: `all-mpnet-base-v2` via sentence-transformers + ChromaDB.
 
 ## Browser app
@@ -55,6 +75,7 @@ cd browser
 npm install
 npm run dev      # http://localhost:5173
 npm run build    # production build → dist/
+npx tsx eval.ts  # run browser pipeline eval (70 questions)
 ```
 
 ### Browser source files
@@ -69,6 +90,7 @@ npm run build    # production build → dist/
 | `index.html` | App shell — layout, modals, search bar |
 | `vite.config.ts` | Vite build config — removes oversized ONNX asyncify WASM (26 MB) from bundle |
 | `public/_headers` | Cloudflare Pages response headers — `COEP: credentialless`, `COOP: same-origin` for SharedArrayBuffer |
+| `eval.ts` | Browser pipeline eval — 70 questions, Transformers.js + Orama + RRF |
 
 ## Python reference implementation
 
@@ -91,7 +113,7 @@ python eval.py                                   # Recall@10 eval
 | `front.py` | Streamlit app — local development |
 | `main.py` | FastAPI backend — `/store` and `/query` endpoints |
 | `ingest.py` | Batch ingest papers into persistent ChromaDB for eval |
-| `eval.py` | Recall@10 evaluation: hybrid RRF vs BM25 baseline |
+| `eval.py` | Recall@5/10/20 evaluation: hybrid RRF vs BM25 baseline |
 | `embedding.py` | all-mpnet-base-v2 encode wrapper |
 | `chunking.py` | Universal sliding window chunker |
 | `cleaners.py` | PDF text cleaning (hyphen breaks, page numbers, whitespace) |
