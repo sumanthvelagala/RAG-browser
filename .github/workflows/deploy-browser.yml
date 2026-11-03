@@ -34,7 +34,7 @@ jobs:
         run: npm install -g wrangler
 
       - name: Deploy to Cloudflare Pages
-        run: wrangler pages deploy browser/dist --project-name=pdf-search
+        run: cd browser/dist && wrangler pages deploy . --project-name=pdf-search
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
