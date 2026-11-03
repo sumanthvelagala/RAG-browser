@@ -175,6 +175,7 @@ async function ingestPDF(file: File) {
         openPdfViewer(blobUrl, p);
       }
     });
+
   }
 
   // extract text and chunk per page

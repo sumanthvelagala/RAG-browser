@@ -15,7 +15,7 @@
   --match-glow:  0 0 0 1.5px var(--accent), 0 0 22px rgba(245,158,11,0.2);
   --radius:      10px;
   --col-w:       calc((100vw - 88px) / 3);
-  --header-h:    52px;
+  --header-h:    68px;
   --footer-h:    84px;
 }
 
@@ -48,10 +48,11 @@ body {
 }
 
 .app-title {
-  font-size: 17px;
-  font-weight: 600;
-  letter-spacing: -0.3px;
-  color: #fff;
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  color: transparent;
+  -webkit-text-stroke: 1.5px rgba(255, 255, 255, 0.8);
 }
 
 .header-right {
@@ -102,18 +103,18 @@ body {
 }
 
 .privacy-badge {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-muted);
 }
 
 .about-btn {
-  width: 26px;
-  height: 26px;
+  width: 32px;
+  height: 32px;
   border-radius: 50%;
   border: 1px solid rgba(255,255,255,0.12);
   background: rgba(255,255,255,0.05);
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 600;
   cursor: pointer;
   display: flex;

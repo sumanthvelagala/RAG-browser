@@ -1,5 +1,7 @@
 # PDF Search — In-Browser, Zero-Install
 
+**Live:** https://pdf-search-79n.pages.dev
+
 Search your own PDFs privately in the browser. No account, no server, no upload.
 Text extraction, embedding, BM25, and hybrid retrieval all run on your device.
 Results jump to the exact page and highlight the matching passage.
@@ -39,23 +41,11 @@ Everything runs offline after the first load (model download ~22 MB, cached by b
 | Recall@20 | **93.3% (56/60)** | 81.7% (49/60) |
 | Avg latency @10 | **25ms** | <1ms |
 
-## Accuracy journey (Python reference, Recall@10)
-
-| Step | Change | Recall@10 |
-|---|---|---|
-| Baseline | SciBERT CLS embeddings | 0% |
-| Swap model | all-MiniLM-L6-v2 | 55% |
-| Better model | all-mpnet-base-v2 | 65% |
-| Smaller chunks | 200 → 128 tokens | 70% |
-| Hybrid RRF (1:1) | dense + BM25 fusion | 85% |
-| Weighted RRF (2:1) | dense 2× weight | 90% |
-| Universal chunker | remove title heuristic | 90.0% |
-| Per-page extraction | chunk within pages, no cross-page bleed | **91.7%** |
-
 ## Models
 
-- **Browser embeddings**: `all-MiniLM-L6-v2` quantized int8 (~22 MB, fits
-  Cloudflare Pages' 25 MiB per-file limit).
+- **Browser embeddings**: `all-MiniLM-L6-v2` quantized int8 (~22 MB). The ONNX
+  runtime WASM (26 MB) exceeds Cloudflare Pages' 25 MiB per-file limit and is
+  loaded at runtime from jsDelivr CDN.
 - **Python reference**: `all-mpnet-base-v2` via sentence-transformers + ChromaDB.
 
 ## Browser app
@@ -66,6 +56,19 @@ npm install
 npm run dev      # http://localhost:5173
 npm run build    # production build → dist/
 ```
+
+### Browser source files
+
+| File | Purpose |
+|---|---|
+| `src/main.ts` | App entry — PDF ingestion, search (RRF fusion), result rendering, UI wiring |
+| `src/embedder.worker.ts` | Web Worker — runs `all-MiniLM-L6-v2` off the main thread via Transformers.js |
+| `src/pdfRenderer.ts` | PDF.js wrapper — loads PDFs, renders pages to canvas at 2× DPI, highlights matched chunks |
+| `src/chunker.ts` | Sliding window chunker (mirrors `chunking.py`) — returns `{text, page}` pairs |
+| `src/style.css` | All UI styles |
+| `index.html` | App shell — layout, modals, search bar |
+| `vite.config.ts` | Vite build config — removes oversized ONNX asyncify WASM (26 MB) from bundle |
+| `public/_headers` | Cloudflare Pages response headers — `COEP: credentialless`, `COOP: same-origin` for SharedArrayBuffer |
 
 ## Python reference implementation
 
