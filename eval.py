@@ -5,7 +5,7 @@ from rank_bm25 import BM25Okapi
 
 API_URL = "http://127.0.0.1:8000/query"
 DB_PATH = "/Users/Sumanth/Terminal/DataBase"
-TOP_K = 10
+EVAL_KS = [5, 10, 20]   # Recall@K values to report
 
 # (question, keyword that must appear in retrieved chunk, expected pdf_id)
 test_cases = [
@@ -115,10 +115,11 @@ def build_bm25(docs):
     tokenized = [doc.lower().split() for doc in docs]
     return BM25Okapi(tokenized)
 
-def bm25_query(bm25, docs, metas, question, keyword, pdf_id):
+def bm25_query(bm25, docs, metas, question, keyword, pdf_id, k):
+    pool = max(50, 3 * k)
     tokens = question.lower().split()
     scores = bm25.get_scores(tokens)
-    top_indices = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)[:TOP_K]
+    top_indices = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)[:k]
     top_docs  = [docs[i]  for i in top_indices]
     top_metas = [metas[i] for i in top_indices]
     return any(
@@ -127,10 +128,10 @@ def bm25_query(bm25, docs, metas, question, keyword, pdf_id):
     )
 
 
-# ── SciBERT retrieval via FastAPI ────────────────────────────────────────────
-def scibert_query(question, keyword, pdf_id):
+# ── hybrid retrieval via FastAPI ─────────────────────────────────────────────
+def hybrid_query(question, keyword, pdf_id, k):
     start = time.time()
-    r = requests.post(API_URL, json={"query": question})
+    r = requests.post(API_URL, json={"query": question, "top_k": k})
     latency = (time.time() - start) * 1000
     results = r.json()["results"]
     hit = any(
@@ -147,38 +148,38 @@ def run_eval():
     bm25 = build_bm25(docs)
     print(f"Corpus loaded: {len(docs)} chunks\n")
 
-    scibert_hits, bm25_hits, latencies = 0, 0, []
+    n = len(test_cases)
+    # hits[k] = {hybrid: int, bm25: int}
+    hits = {k: {"hybrid": 0, "bm25": 0} for k in EVAL_KS}
+    latencies = {k: [] for k in EVAL_KS}
 
-    print(f"{'#':<4} {'MiniLM':<10} {'BM25':<10} {'Latency':>8}   Question")
-    print("-" * 75)
+    # detailed output at @10 (matches default UI)
+    k_detail = 10
+    print(f"{'#':<4} {'Hybrid@10':<12} {'BM25@10':<10} {'Latency':>8}   Question")
+    print("-" * 80)
 
     for i, (question, keyword, pdf_id) in enumerate(test_cases, 1):
-        scibert_hit, latency = scibert_query(question, keyword, pdf_id)
-        bm25_hit             = bm25_query(bm25, docs, metas, question, keyword, pdf_id)
+        for k in EVAL_KS:
+            hybrid_hit, latency = hybrid_query(question, keyword, pdf_id, k)
+            bm25_hit = bm25_query(bm25, docs, metas, question, keyword, pdf_id, k)
+            hits[k]["hybrid"] += hybrid_hit
+            hits[k]["bm25"]   += bm25_hit
+            if k == k_detail:
+                latencies[k].append(latency)
+                h = "PASS" if hybrid_hit else "FAIL"
+                b = "PASS" if bm25_hit   else "FAIL"
+                print(f"{i:<4} {h:<12} {b:<10} {latency:>7.0f}ms   {question}")
 
-        scibert_hits += scibert_hit
-        bm25_hits    += bm25_hit
-        latencies.append(latency)
-
-        s = "PASS" if scibert_hit else "FAIL"
-        b = "PASS" if bm25_hit   else "FAIL"
-        print(f"{i:<4} {s:<10} {b:<10} {latency:>7.0f}ms   {question}")
-
-    n = len(test_cases)
-    print("\n" + "=" * 75)
-    print(f"{'Metric':<30} {'MiniLM':>10} {'BM25':>10}")
+    print("\n" + "=" * 80)
+    print(f"{'Metric':<22} {'Hybrid RRF':>12} {'BM25 baseline':>14}")
     print("-" * 50)
-    print(f"{'Retrieval accuracy':<30} {scibert_hits/n*100:>9.1f}% {bm25_hits/n*100:>9.1f}%")
-    print(f"{'Hits':<30} {scibert_hits:>9}/{n} {bm25_hits:>9}/{n}")
-    print(f"{'Avg query latency':<30} {sum(latencies)/len(latencies):>8.0f}ms {'<1ms':>10}")
-    print("=" * 75)
-
-    if scibert_hits > bm25_hits:
-        print(f"\nMiniLM outperforms BM25 by {scibert_hits - bm25_hits} questions.")
-    elif bm25_hits > scibert_hits:
-        print(f"\nBM25 outperforms MiniLM by {bm25_hits - scibert_hits} questions.")
-    else:
-        print("\nBoth methods perform equally.")
+    for k in EVAL_KS:
+        h = hits[k]["hybrid"]
+        b = hits[k]["bm25"]
+        print(f"{'Recall@'+str(k):<22} {h/n*100:>10.1f}%  ({h}/{n})   {b/n*100:>10.1f}%  ({b}/{n})")
+    avg_lat = sum(latencies[k_detail]) / len(latencies[k_detail])
+    print(f"\n{'Avg latency @'+str(k_detail):<22} {avg_lat:>10.0f}ms  {'<1ms':>20}")
+    print("=" * 80)
 
 if __name__ == "__main__":
     run_eval()
