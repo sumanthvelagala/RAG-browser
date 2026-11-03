@@ -80,6 +80,9 @@ jobs:
       - name: Type-check
         run: cd browser && npx tsc --noEmit
 
+      - name: Unit tests
+        run: cd browser && npm test
+
       - name: Build
         run: cd browser && npm run build
 
