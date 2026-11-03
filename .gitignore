@@ -8,6 +8,10 @@ TESTING.md
 *.bin
 compare.py
 eval_models.py
+test_lease.py
+test_papers.py
+test_prompt.py
+tests/
 
 # ── Python ───────────────────────────────────────────────────────────────────
 __pycache__/
