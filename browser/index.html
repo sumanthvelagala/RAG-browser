@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PDF Search</title>
+  </head>
+  <body>
+    <div id="app">
+      <header class="header">
+        <span class="app-title">PDF Search</span>
+        <div class="header-right">
+          <span class="privacy-badge">🔒 100% local · no server</span>
+          <button class="about-btn" id="about-btn" title="About">?</button>
+        </div>
+      </header>
+
+      <!-- PDF viewer modal -->
+      <div class="pdf-viewer-backdrop" id="pdf-viewer-backdrop" hidden>
+        <div class="pdf-viewer-container">
+          <button class="pdf-viewer-close" id="pdf-viewer-close" title="Close">✕</button>
+          <iframe id="pdf-viewer-frame" class="pdf-viewer-frame" src="" title="PDF"></iframe>
+        </div>
+      </div>
+
+      <!-- About modal -->
+      <div class="modal-backdrop" id="modal-backdrop" hidden>
+        <div class="modal" role="dialog" aria-modal="true">
+          <button class="modal-close" id="modal-close">✕</button>
+          <h2>PDF Search</h2>
+          <p class="modal-tagline">Your documents, your browser, your privacy.</p>
+          <ul class="modal-list">
+            <li><strong>Zero uploads</strong> — PDFs never leave your device</li>
+            <li><strong>No account</strong> — open the page and start searching</li>
+            <li><strong>No server</strong> — AI model runs entirely in-browser via WebAssembly</li>
+            <li><strong>Hybrid search</strong> — semantic (embeddings) + keyword (BM25) fused with RRF</li>
+            <li><strong>Page-level results</strong> — matched pages highlighted with passage preview</li>
+          </ul>
+          <p class="modal-model">Model: <code>all-MiniLM-L6-v2</code> (22 MB, downloaded once &amp; cached)</p>
+        </div>
+      </div>
+
+      <div class="pdf-count-overlay" id="pdf-count" hidden>
+        <div class="count-card">
+          <div class="count-number" id="pdf-count-number">0</div>
+          <div class="count-label" id="pdf-count-label">PDFs indexed</div>
+        </div>
+      </div>
+
+      <main class="library" id="library">
+        <div class="empty-state" id="empty-state">
+          <p>Add a PDF below to get started</p>
+        </div>
+      </main>
+
+      <footer class="search-footer">
+        <div class="search-bar" id="search-bar">
+          <button class="upload-btn" id="upload-btn" title="Add PDF">+</button>
+          <input
+            type="text"
+            id="search-input"
+            class="search-input"
+            placeholder="Ask a question or search…"
+            autocomplete="off"
+          />
+          <select id="results-count" class="results-count" title="Results to show">
+            <option value="5">5</option>
+            <option value="10" selected>10</option>
+            <option value="20">20</option>
+          </select>
+          <button class="ask-btn" id="ask-btn" title="Search">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <path d="M2 8h10M8 4l4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
+        </div>
+        <p class="search-hint" id="search-hint"></p>
+      </footer>
+    </div>
+
+    <input type="file" id="file-input" accept=".pdf" multiple style="display:none" />
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

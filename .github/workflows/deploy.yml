@@ -3,6 +3,13 @@ name: Deploy to HF Spaces
 on:
   push:
     branches: [main]
+    paths:
+      - "app.py"
+      - "main.py"
+      - "front.py"
+      - "requirements.txt"
+      - "*.py"
+      - ".github/workflows/deploy.yml"
 
 jobs:
   deploy:
