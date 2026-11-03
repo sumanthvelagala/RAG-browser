@@ -1,10 +1,12 @@
 # In-Browser Semantic PDF Search
 
-**Live:** https://pdf-search-79n.pages.dev &nbsp;·&nbsp; **Python reference:** [sumanthvelagala/document-rag](https://github.com/sumanthvelagala/document-rag) (started Aug 2025)
+**Live:** https://pdf-search-79n.pages.dev
 
 Search your own PDFs privately in the browser. No account, no server, no upload.
 Text extraction, embedding, BM25, and hybrid retrieval all run on your device.
 Results jump to the exact page and highlight the matching passage.
+
+![Demo — upload PDFs, search with simple and hard semantic queries](demo.gif)
 
 ## How it works
 
@@ -86,6 +88,7 @@ npx tsx eval.ts  # run browser pipeline eval (70 questions)
 | `src/embedder.worker.ts` | Web Worker — runs `all-MiniLM-L6-v2` off the main thread via Transformers.js |
 | `src/pdfRenderer.ts` | PDF.js wrapper — loads PDFs, renders pages to canvas at 2× DPI, highlights matched chunks |
 | `src/chunker.ts` | Sliding window chunker (mirrors `chunking.py`) — returns `{text, page}` pairs |
+| `src/rrf.ts` | Reciprocal Rank Fusion — combines dense + BM25 rankings with 2:1 weighting, returns top-k indices |
 | `src/style.css` | All UI styles |
 | `index.html` | App shell — layout, modals, search bar |
 | `vite.config.ts` | Vite build config — removes oversized ONNX asyncify WASM (26 MB) from bundle |
