@@ -21,14 +21,16 @@ Results jump to the exact page and highlight the matching passage.
 5. Matched pages are rendered with PDF.js at 2× DPI and the matched passage is
    highlighted. Click any page to open the full PDF at that page.
 
-Everything runs offline after the first load (model ~22 MB, cached by browser).
+After the first load the app works offline — the ONNX runtime (~26 MB) is cached by
+the service worker and the model weights (~22 MB) are cached by Transformers.js.
+The very first visit requires network to fetch both.
 
 ## Privacy
 
 - PDFs are never uploaded. All processing is local.
 - The embedding model is fetched once from Hugging Face CDN and cached by the browser.
 - No analytics touch document content.
-- Turn off Wi-Fi after the page loads — it still works.
+- Turn off Wi-Fi after the first load — it still works (ONNX runtime and app shell are cached by the service worker).
 
 ## Known limits
 
@@ -41,7 +43,8 @@ Everything runs offline after the first load (model ~22 MB, cached by browser).
 
 ## Eval results
 
-Both pipelines use the same 60 questions, 15 papers, 7 domains.
+Both pipelines share the same 60 questions across 15 papers, 7 domains.
+The browser eval (`eval.ts`) also runs 10 additional hard semantic queries (70 total).
 Browser eval run with `browser/eval.ts` (tsx + Transformers.js); Python eval run with `eval.py`.
 
 | Metric | Browser · `all-MiniLM-L6-v2` q8 | Python ref · `all-mpnet-base-v2` |
@@ -59,7 +62,7 @@ Gap at Recall@10: **−8.4 pp** — model size (384-dim q8 vs 768-dim fp32) and 
 | Recall@10 | 50.0% (5/10) | 10.0% (1/10) |
 | Recall@20 | 80.0% (8/10) | 10.0% (1/10) |
 
-Dense retrieval handles all 5 hard-query passes; BM25 alone finds only 1.
+All 5 hybrid passes come from dense retrieval; BM25 alone finds only 1 of the 10.
 
 † BM25 uses `threshold:1` (all query tokens must match) — same setting as the live app.
 Python BM25 baseline uses soft scoring so numbers are not directly comparable.
@@ -91,9 +94,10 @@ npx tsx eval.ts  # run browser pipeline eval (70 questions)
 | `src/rrf.ts` | Reciprocal Rank Fusion — combines dense + BM25 rankings with 2:1 weighting, returns top-k indices |
 | `src/style.css` | All UI styles |
 | `index.html` | App shell — layout, modals, search bar |
+| `public/sw.js` | Service worker — caches the ONNX runtime (cache-first) and app shell (stale-while-revalidate) for offline use |
 | `vite.config.ts` | Vite build config — removes oversized ONNX asyncify WASM (26 MB) from bundle |
 | `public/_headers` | Cloudflare Pages response headers — `COEP: credentialless`, `COOP: same-origin` for SharedArrayBuffer |
-| `eval.ts` | Browser pipeline eval — 70 questions, Transformers.js + Orama + RRF |
+| `eval.ts` | Browser pipeline eval — 60 shared + 10 hard semantic questions, Transformers.js + Orama + RRF |
 
 ## Python reference implementation
 

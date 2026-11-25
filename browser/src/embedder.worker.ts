@@ -7,7 +7,7 @@ import { pipeline, env, FeatureExtractionPipeline } from '@huggingface/transform
 // The asyncify WASM (26 MB) exceeds Cloudflare Pages' 25 MB per-file limit.
 // Load it from CDN so the local copy is excluded from the dist bundle.
 if (env.backends.onnx.wasm) {
-  env.backends.onnx.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/';
+  env.backends.onnx.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.31.1/dist/';
 }
 
 let embedder: FeatureExtractionPipeline | null = null;

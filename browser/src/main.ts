@@ -72,7 +72,7 @@ const POOL_SIZE = Math.min(navigator.hardwareConcurrency || 2, 4);
 
 interface PoolWorker {
   worker:    Worker;
-  callbacks: Map<string, (e: number[][]) => void>;
+  callbacks: Map<string, { resolve: (e: number[][]) => void; reject: (err: Error) => void }>;
   busy:      number;  // active batch count
 }
 
@@ -89,12 +89,12 @@ const pool: PoolWorker[] = Array.from({ length: POOL_SIZE }, () => {
     if (type === 'model_ready')    setHint('');
     if (type === 'embed_result') {
       pw.busy--;
-      pw.callbacks.get(id)?.(embeddings);
+      pw.callbacks.get(id)?.resolve(embeddings);
       pw.callbacks.delete(id);
     }
     if (type === 'embed_error') {
       pw.busy--;
-      console.error('Embed error:', error);
+      pw.callbacks.get(id)?.reject(new Error(String(error)));
       pw.callbacks.delete(id);
     }
   };
@@ -103,9 +103,9 @@ const pool: PoolWorker[] = Array.from({ length: POOL_SIZE }, () => {
 
 function embedTexts(texts: string[]): Promise<number[][]> {
   const pw = pool.reduce((a, b) => a.busy <= b.busy ? a : b);
-  return new Promise(resolve => {
+  return new Promise((resolve, reject) => {
     const id = crypto.randomUUID();
-    pw.callbacks.set(id, resolve);
+    pw.callbacks.set(id, { resolve, reject });
     pw.busy++;
     pw.worker.postMessage({ id, texts });
   });
@@ -124,112 +124,127 @@ async function ingestPDF(file: File) {
   observeColumn(col.colEl);
   updateLibraryCentering();
 
-  const buf     = await file.arrayBuffer();
-  const blobUrl = URL.createObjectURL(new Blob([buf], { type: 'application/pdf' }));
-  const doc     = await loadPDF(buf);
+  let blobUrl = '';
+  let pagesAddedToTotal = 0;
 
-  // Pinch on mobile → open native PDF viewer (has proper pinch-zoom)
-  col.pagesEl.addEventListener('touchstart', e => {
-    if (e.touches.length === 2) {
-      e.preventDefault();
-      openPdfViewer(blobUrl, 1);
-    }
-  }, { passive: false });
-  const numPages = doc.numPages;
+  try {
+    const buf = await file.arrayBuffer();
+    blobUrl   = URL.createObjectURL(new Blob([buf], { type: 'application/pdf' }));
+    const doc = await loadPDF(buf);
 
-  if (totalPages + numPages > PAGE_CAP) {
-    const remaining = PAGE_CAP - totalPages;
-    setHint(remaining > 0
-      ? `"${file.name}" has ${numPages} pages but only ${remaining} remain in the ${PAGE_CAP}-page limit.`
-      : `Page limit of ${PAGE_CAP} reached — remove a PDF to add more.`);
-    URL.revokeObjectURL(blobUrl);
-    library.removeChild(col.colEl);
-    totalPdfs--;
-    updatePdfCount();
-    pendingPdfs.delete(file.name);
-    return;
-  }
-  totalPages += numPages;
-
-  // render all pages as thumbnails
-  const pageEls: HTMLElement[] = [];
-  for (let p = 1; p <= numPages; p++) {
-    const card = buildLoadingCard(p);
-    col.pagesEl.appendChild(card);
-    pageEls.push(card);
-
-    renderPage(doc, p).then(canvas => {
-      card.innerHTML = '';
-      card.appendChild(canvas);
-      const label = document.createElement('div');
-      label.className = 'page-num';
-      label.textContent = String(p);
-      card.appendChild(label);
-      card.classList.remove('loading');
-    });
-
-    card.addEventListener('click', () => {
-      if (card.classList.contains('collapsed')) {
-        card.classList.remove('collapsed');
-        card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-      } else {
-        openPdfViewer(blobUrl, p);
+    // Pinch on mobile → open native PDF viewer (has proper pinch-zoom)
+    col.pagesEl.addEventListener('touchstart', e => {
+      if (e.touches.length === 2) {
+        e.preventDefault();
+        openPdfViewer(blobUrl, 1);
       }
+    }, { passive: false });
+    const numPages = doc.numPages;
+
+    if (totalPages + numPages > PAGE_CAP) {
+      const remaining = PAGE_CAP - totalPages;
+      setHint(remaining > 0
+        ? `"${file.name}" has ${numPages} pages but only ${remaining} remain in the ${PAGE_CAP}-page limit.`
+        : `Page limit of ${PAGE_CAP} reached — remove a PDF to add more.`);
+      URL.revokeObjectURL(blobUrl);
+      library.removeChild(col.colEl);
+      totalPdfs--;
+      updatePdfCount();
+      pendingPdfs.delete(file.name);
+      return;
+    }
+    totalPages += numPages;
+    pagesAddedToTotal = numPages;
+
+    // render all pages as thumbnails
+    const pageEls: HTMLElement[] = [];
+    for (let p = 1; p <= numPages; p++) {
+      const card = buildLoadingCard(p);
+      col.pagesEl.appendChild(card);
+      pageEls.push(card);
+
+      renderPage(doc, p).then(canvas => {
+        card.innerHTML = '';
+        card.appendChild(canvas);
+        const label = document.createElement('div');
+        label.className = 'page-num';
+        label.textContent = String(p);
+        card.appendChild(label);
+        card.classList.remove('loading');
+      });
+
+      card.addEventListener('click', () => {
+        if (card.classList.contains('collapsed')) {
+          card.classList.remove('collapsed');
+          card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        } else {
+          openPdfViewer(blobUrl, p);
+        }
+      });
+    }
+
+    // extract text and chunk per page
+    const allWords: string[] = [];
+    const boundaries: Array<[number, number]> = [];
+
+    for (let p = 1; p <= numPages; p++) {
+      const page    = await doc.getPage(p);
+      const content = await page.getTextContent();
+      const text    = (content.items as Array<{ str: string }>).map(i => i.str).join(' ');
+      const words   = text.trim().split(/\s+/).filter(Boolean);
+      if (words.length) {
+        boundaries.push([allWords.length, p]);
+        allWords.push(...words);
+      }
+    }
+
+    const rawChunks = chunkWords(allWords, boundaries);
+    const chunks: StoredChunk[] = rawChunks.map((c, i) => ({
+      ...c,
+      id:  `${file.name}::${i}`,
+      pdf: file.name,
+    }));
+
+    col.barEl.style.width = '5%';
+
+    const BATCH = 32;
+    const allEmbeddings: number[][] = [];
+    for (let i = 0; i < chunks.length; i += BATCH) {
+      const batch = chunks.slice(i, i + BATCH).map(c => c.text);
+      const embs  = await embedTexts(batch);
+      allEmbeddings.push(...embs);
+      const pct = Math.round(((i + batch.length) / chunks.length) * 100);
+      col.barEl.style.width = `${pct}%`;
+    }
+
+    col.barEl.style.width = '100%';
+    setTimeout(() => { (col.barEl.parentElement as HTMLElement).style.display = 'none'; }, 600);
+    readyPdfs++;
+    updatePdfCount();
+
+    pendingPdfs.delete(file.name);
+    pdfs.set(file.name, {
+      name: file.name,
+      doc,
+      blobUrl,
+      chunks,
+      embeddings: allEmbeddings,
+      colEl: col.colEl,
+      pagesEl: col.pagesEl,
+      pageEls,
     });
 
+  } catch (err) {
+    console.error(`Failed to ingest "${file.name}":`, err);
+    setHint(`Failed to load "${file.name}" — the file may be corrupt or password-protected.`);
+    pendingPdfs.delete(file.name);
+    totalPdfs--;
+    totalPages -= pagesAddedToTotal;
+    if (library.contains(col.colEl)) library.removeChild(col.colEl);
+    if (blobUrl) URL.revokeObjectURL(blobUrl);
+    updatePdfCount();
+    if (pdfs.size === 0 && pendingPdfs.size === 0) emptyState.style.display = '';
   }
-
-  // extract text and chunk per page
-  const allWords: string[] = [];
-  const boundaries: Array<[number, number]> = [];
-
-  for (let p = 1; p <= numPages; p++) {
-    const page    = await doc.getPage(p);
-    const content = await page.getTextContent();
-    const text    = (content.items as Array<{ str: string }>).map(i => i.str).join(' ');
-    const words   = text.trim().split(/\s+/).filter(Boolean);
-    if (words.length) {
-      boundaries.push([allWords.length, p]);
-      allWords.push(...words);
-    }
-  }
-
-  const rawChunks = chunkWords(allWords, boundaries);
-  const chunks: StoredChunk[] = rawChunks.map((c, i) => ({
-    ...c,
-    id:  `${file.name}::${i}`,
-    pdf: file.name,
-  }));
-
-  col.barEl.style.width = '5%';
-
-  const BATCH = 32;
-  const allEmbeddings: number[][] = [];
-  for (let i = 0; i < chunks.length; i += BATCH) {
-    const batch = chunks.slice(i, i + BATCH).map(c => c.text);
-    const embs  = await embedTexts(batch);
-    allEmbeddings.push(...embs);
-    const pct = Math.round(((i + batch.length) / chunks.length) * 100);
-    col.barEl.style.width = `${pct}%`;
-  }
-
-  col.barEl.style.width = '100%';
-  setTimeout(() => { (col.barEl.parentElement as HTMLElement).style.display = 'none'; }, 600);
-  readyPdfs++;
-  updatePdfCount();
-
-  pendingPdfs.delete(file.name);
-  pdfs.set(file.name, {
-    name: file.name,
-    doc,
-    blobUrl,
-    chunks,
-    embeddings: allEmbeddings,
-    colEl: col.colEl,
-    pagesEl: col.pagesEl,
-    pageEls,
-  });
-
 }
 
 // ── search ────────────────────────────────────────────────────────────────────
@@ -256,7 +271,14 @@ async function runSearch(query: string) {
 
   setHint('Searching…');
 
-  const [queryEmb] = await embedTexts([query]);
+  let queryEmb: number[];
+  try {
+    [queryEmb] = await embedTexts([query]);
+  } catch (err) {
+    console.error(err);
+    setHint('Search failed — check console for details.');
+    return;
+  }
 
   // gather all chunks + embeddings across pdfs
   const allChunks: StoredChunk[]  = [];
@@ -444,6 +466,13 @@ function observeColumn(colEl: HTMLElement) {
 }
 
 function updateLibraryCentering() { /* spacers handle centering */ }
+
+// ── service worker (offline support) ─────────────────────────────────────────
+if ('serviceWorker' in navigator && import.meta.env.PROD) {
+  navigator.serviceWorker
+    .register(`${import.meta.env.BASE_URL}sw.js`)
+    .catch(err => console.warn('Service worker registration failed:', err));
+}
 
 // ── about modal ───────────────────────────────────────────────────────────────
 aboutBtn.addEventListener('click', () => modalBackdrop.removeAttribute('hidden'));
