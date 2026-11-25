@@ -8,17 +8,21 @@ Results jump to the exact page and highlight the matching passage.
 
 ![Demo — upload PDFs, search with simple and hard semantic queries](demo.gif)
 
+**Stack:** TypeScript · Vite · PDF.js · Transformers.js · ONNX Runtime Web · Orama · Cloudflare Pages
+
 ## How it works
 
 1. Drop PDFs into the browser. PDF.js extracts text — no bytes leave your device.
-2. Chunks are embedded with `all-MiniLM-L6-v2` (quantized, ~22 MB) running in a
-   Web Worker via Transformers.js. The ONNX runtime loads from jsDelivr CDN on
-   first use; the model weights load from Hugging Face CDN once and are cached
-   by the browser. Documents themselves are never uploaded anywhere.
-3. A BM25 index is built in parallel using Orama.
-4. On query: dense retrieval + BM25 top-50 each, fused with RRF (2:1 dense:BM25),
-   top-k results returned — verbatim passages from your documents, no generation.
-5. Matched pages are rendered with PDF.js at 2× DPI and the matched passage is
+2. Text is split into overlapping chunks (128 tokens, 32 overlap) using a sliding
+   window chunker that tracks page boundaries.
+3. Chunks are embedded with `all-MiniLM-L6-v2` (quantized int8, ~22 MB) running in
+   a pool of up to 4 Web Workers via Transformers.js so the UI never freezes. The
+   ONNX runtime loads from jsDelivr CDN on first use; model weights load from
+   Hugging Face CDN once and are cached. Documents are never uploaded anywhere.
+4. A BM25 index is built in parallel using Orama.
+5. On query: dense retrieval + BM25 top-50 each, fused with RRF (k=60, 2:1
+   dense:BM25 weight), top-k results returned — verbatim passages, no generation.
+6. Matched pages are rendered with PDF.js at 2× DPI and the matched passage is
    highlighted. Click any page to open the full PDF at that page.
 
 After the first load the app works offline — the ONNX runtime (~26 MB) is cached by
@@ -73,6 +77,11 @@ Python BM25 baseline uses soft scoring so numbers are not directly comparable.
   (26 MB) exceeds Cloudflare Pages' 25 MiB per-file limit and loads from jsDelivr CDN.
 - **Python reference**: `all-mpnet-base-v2` via sentence-transformers + ChromaDB.
 
+## Requirements
+
+- **Browser**: Chrome 94+, Firefox 101+, or Safari 16.4+ (SharedArrayBuffer support required)
+- **Node.js**: 18+ (for local dev, eval, and the MCP bridge)
+
 ## Browser app
 
 ```bash
@@ -80,6 +89,7 @@ cd browser
 npm install
 npm run dev      # http://localhost:5173
 npm run build    # production build → dist/
+npm test         # unit tests (chunker + RRF)
 npx tsx eval.ts  # run browser pipeline eval (70 questions)
 ```
 
@@ -100,6 +110,9 @@ npx tsx eval.ts  # run browser pipeline eval (70 questions)
 | `eval.ts` | Browser pipeline eval — 60 shared + 10 hard semantic questions, Transformers.js + Orama + RRF |
 
 ## Python reference implementation
+
+A server-side baseline using larger models and persistent storage — used to establish
+Recall benchmarks and compare retrieval quality against the browser pipeline.
 
 ```bash
 python -m venv venv
